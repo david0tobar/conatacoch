@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block titulo %}Mi jornada · Conatacoch{% endblock %}
+{% block contenido %}
+<div class="panel">
+  <h1>Mi jornada</h1>
+  {% for m in messages %}<p class="msg" role="status">{{ m }}</p>{% endfor %}
+  <section class="estado" style="display:flex;gap:1rem;align-items:center">
+    {% if user.perfil.foto %}<img class="foto-perfil" src="{{ user.perfil.foto.url }}" alt="Tu foto de perfil">
+    {% else %}<div class="foto-perfil vacia" aria-hidden="true">?</div>{% endif %}
+    <form method="post" action="{% url 'subir_foto' %}" enctype="multipart/form-data">{% csrf_token %}
+      <label for="foto"><b>Tu foto</b><br><span class="helptext">Los pasajeros la ven para identificarte.</span></label>
+      <input id="foto" type="file" name="foto" accept="image/*" required>
+      <button class="btn sec" style="padding:.4rem .8rem;margin-top:.4rem">Guardar foto</button>
+    </form>
+  </section>
+  <div id="estado" class="estado {% if jornada %}activo{% endif %}" aria-live="polite">
+    {% if jornada %}Jornada activa · {{ jornada.vehiculo.patente }}{% else %}Jornada sin iniciar{% endif %}
+  </div>
+  <p id="error" role="alert" style="color:var(--mal);font-weight:600"></p>
+
+  {% if not jornada %}
+  <div id="bloque-inicio">
+    {% if vehiculos %}
+      <label for="veh">Vehículo</label>
+      <select id="veh">{% for v in vehiculos %}<option value="{{ v.id }}">{{ v.patente }} · {{ v.modelo }} · {{ v.recorrido.nombre }}</option>{% endfor %}</select>
+      <button class="btn" id="iniciar" style="width:100%;font-size:1.3rem">Iniciar jornada</button>
+      <p class="helptext">Al iniciar, el navegador pedirá permiso para usar tu ubicación. Solo se comparte mientras la jornada esté activa. Mantén la pantalla encendida y esta página abierta.</p>
+    {% else %}
+      <p>Aún no tienes un vehículo asignado. Pídele al administrador que te asigne uno y lo apruebe.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div id="bloque-activo">
+    <h2>Recorrido</h2>
+    <p><b>{{ jornada.vehiculo.recorrido.nombre }}</b></p>
+
+    <h2>Asientos libres</h2>
+    <div class="cupos">
+      <button class="btn" id="menos" aria-label="Un asiento menos">−</button>
+      <output id="cupos">{{ jornada.asientos_libres }}</output>
+      <button class="btn" id="mas" aria-label="Un asiento más">+</button>
+    </div>
+    <p class="helptext" id="gps"></p>
+    <button class="btn peligro" id="finalizar" style="width:100%;font-size:1.3rem">Finalizar jornada</button>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+const CSRF = "{{ csrf_token }}";
+let cupos = {{ jornada.asientos_libres|default:0 }}, capacidad = {{ jornada.vehiculo.capacidad|default:4 }};
+let watchId = null, ultimoEnvio = 0;
+const $ = id => document.getElementById(id);
+const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF}, body: JSON.stringify(body || {})}).then(r => r.json());
+
+function seguir() {
+  if (!navigator.geolocation) { $('gps').textContent = 'Este dispositivo no permite usar el GPS.'; return; }
+  watchId = navigator.geolocation.watchPosition(p => {
+    $('gps').textContent = 'Compartiendo tu ubicación.';
+    if (Date.now() - ultimoEnvio < 4000) return;
+    ultimoEnvio = Date.now();
+    post('/api/jornada/actualizar/', {lat: p.coords.latitude, lng: p.coords.longitude});
+  }, () => { $('gps').textContent = 'Activa el GPS y permite la ubicación para aparecer en el mapa.'; }, {enableHighAccuracy: true});
+}
+function cambiar(n) {
+  cupos = Math.max(0, Math.min(capacidad, cupos + n)); $('cupos').textContent = cupos;
+  post('/api/jornada/actualizar/', {asientos: cupos});
+}
+
+if ($('iniciar')) $('iniciar').onclick = () => post('/api/jornada/iniciar/', {vehiculo: $('veh').value}).then(d => {
+  if (d.ok) location.reload(); else $('error').textContent = d.error || 'No se pudo iniciar.';
+});
+if ($('finalizar')) {
+  $('finalizar').onclick = () => post('/api/jornada/finalizar/').then(() => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); location.reload(); });
+  $('mas').onclick = () => cambiar(1);
+  $('menos').onclick = () => cambiar(-1);
+  seguir();
+}
+</script>
+{% endblock %}

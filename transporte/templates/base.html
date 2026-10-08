@@ -1,0 +1,29 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Conatacoch{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'transporte/app.css' %}">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top">
+  <a class="marca" href="{% url 'mapa' %}">Conatacoch</a>
+  <nav>
+    <a href="{% url 'mapa' %}">Mapa</a>
+    {% if user.is_authenticated %}
+      {% if user.perfil.rol == 'conductor' %}<a href="{% url 'conductor' %}">Mi jornada</a>{% endif %}
+      {% if user.is_superuser or user.perfil.rol == 'admin' or user.perfil.rol == 'representante' %}<a href="{% url 'panel' %}">Panel</a>{% endif %}
+      {% if user.is_staff %}<a href="{% url 'admin:index' %}">Administración</a>{% endif %}
+      <a href="{% url 'cambiar_clave' %}">Contraseña</a>
+      <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="link">Salir ({{ user.first_name|default:user.username }})</button></form>
+    {% else %}
+      <a href="{% url 'login' %}">Ingresar</a>
+      <a href="{% url 'registro' %}">Crear cuenta</a>
+    {% endif %}
+  </nav>
+</header>
+<main>{% block contenido %}{% endblock %}</main>
+</body>
+</html>

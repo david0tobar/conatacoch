@@ -1,0 +1,38 @@
+{% extends "panel/base_panel.html" %}
+{% block panel %}
+<h1>{% if perfil %}Editar persona{% else %}Nueva persona{% endif %}</h1>
+<form method="post" enctype="multipart/form-data" class="formulario">{% csrf_token %}
+  {{ form.non_field_errors }}
+  {% if perfil %}
+    <p>RUT: <b>{{ perfil.rut_fmt }}</b></p>
+  {% else %}
+    <div class="campo">{{ form.rut.label_tag }}{{ form.rut }}<span class="helptext">{{ form.rut.help_text }}</span>{{ form.rut.errors }}</div>
+  {% endif %}
+  <div class="campo">{{ form.nombre.label_tag }}{{ form.nombre }}{{ form.nombre.errors }}</div>
+  <div class="campo">{{ form.rol.label_tag }}{{ form.rol }}{{ form.rol.errors }}
+    {% if bloquear %}<span class="helptext">Por seguridad, este rol no se puede cambiar desde aquí.</span>{% endif %}</div>
+  <div class="campo">{{ form.foto.label_tag }}{{ form.foto }}<span class="helptext">Opcional. Máximo 2 MB.</span>{{ form.foto.errors }}</div>
+
+  <div id="bloque-conductor">
+    <div class="campo"><b>{{ form.vehiculos.label }}</b>{{ form.vehiculos }}{{ form.vehiculos.errors }}
+      {% if not form.vehiculos.field.queryset.exists %}<span class="helptext">Aún no hay vehículos disponibles.</span>{% endif %}</div>
+    {% if form.representante %}<div class="campo">{{ form.representante.label_tag }}{{ form.representante }}{{ form.representante.errors }}</div>{% endif %}
+  </div>
+
+  {% if form.recorridos %}
+  <div id="bloque-representante" hidden>
+    <div class="campo"><b>{{ form.recorridos.label }}</b>{{ form.recorridos }}{{ form.recorridos.errors }}
+      {% if not form.recorridos.field.queryset.exists %}<span class="helptext">Aún no hay recorridos creados.</span>{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% if not perfil %}<p class="helptext">Se generará una contraseña provisoria que verás una sola vez. La persona deberá cambiarla al ingresar.</p>{% endif %}
+  <div class="fila-acciones"><button class="btn" type="submit">Guardar</button><a class="btn sec" href="{% url 'panel_personas' %}">Cancelar</a></div>
+</form>
+<script>
+const rol = document.getElementById('id_rol');
+const bc = document.getElementById('bloque-conductor'), br = document.getElementById('bloque-representante');
+function mostrar() { bc.hidden = rol.value !== 'conductor'; if (br) br.hidden = rol.value !== 'representante'; }
+rol.addEventListener('change', mostrar); mostrar();
+</script>
+{% endblock %}

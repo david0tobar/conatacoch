@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block titulo %}Recorridos · Conatacoch{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+.pt-n{width:26px;height:26px;border-radius:50%;background:var(--amarillo);border:3px solid #000;color:#000;font-weight:800;font-size:.8rem;display:grid;place-items:center;cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.pasos{padding-left:1.2rem;margin:.4rem 0 1rem}.pasos li{margin:.25rem 0}
+.buscador{display:flex;gap:.4rem;margin-bottom:.8rem}.buscador input{flex:1}
+.chk{display:flex!important;align-items:center;gap:.5rem;font-weight:400!important}.chk input{width:auto!important}
+</style>{% endblock %}
+{% block contenido %}
+<div class="gestion">
+  <aside>
+    <h1 style="margin-top:0">Nuevo recorrido</h1>
+    <ol class="pasos">
+      <li><b>Busca</b> una calle o lugar para ir a esa zona del mapa.</li>
+      <li><b>Haz clic</b> en el inicio, en los puntos intermedios y en el final. La línea se ajusta sola a las calles.</li>
+      <li><b>Arrastra</b> un punto si el camino no es el correcto. Toca un punto para quitarlo.</li>
+      <li><b>Guarda</b> el recorrido.</li>
+    </ol>
+    <form id="buscar" class="buscador" role="search">
+      <input id="q" placeholder="Ej: Plaza de Armas, Santiago" aria-label="Buscar lugar">
+      <button class="btn" type="submit" style="padding:.5rem .8rem">Buscar</button>
+    </form>
+
+    <label for="nombre">Nombre del recorrido</label><input id="nombre" maxlength="120">
+    <label for="tarifa">Tarifa ($)</label><input id="tarifa" type="number" min="0" value="0">
+    <div class="acciones">
+      <button class="btn sec" type="button" id="deshacer">Deshacer último punto</button>
+      <button class="btn sec" type="button" id="limpiar">Empezar de nuevo</button>
+      <button class="btn peligro" type="button" id="guardar">Guardar recorrido</button>
+    </div>
+    <p id="msg" role="status">Haz clic en el mapa para marcar el inicio y el final.</p>
+
+    <h2>Recorridos guardados</h2>
+    <ul class="lista-rec">
+      {% for r in recorridos %}
+      <li><span>{{ r.nombre }} · ${{ r.tarifa }}</span>
+        <span><button class="btn sec" style="padding:.3rem .6rem" onclick="ver({{ r.id }})">Ver</button>
+        <button class="btn sec" style="padding:.3rem .6rem" onclick="eliminar({{ r.id }})">Eliminar</button></span></li>
+      {% empty %}<li>Aún no hay recorridos.</li>{% endfor %}
+    </ul>
+  </aside>
+  <div id="map" role="application" aria-label="Mapa para dibujar el recorrido"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CSRF = "{{ csrf_token }}";
+const $ = id => document.getElementById(id);
+const msg = t => { $('msg').textContent = t; };
+const map = L.map('map').setView([-33.45, -70.66], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(map);
+
+let marcas = [], puntos = [], traza = null, capa = null, vista = null, timer = null, version = 0, cache = null;
+const icono = n => L.divIcon({className: '', html: '<div class="pt-n">' + n + '</div>', iconSize: [26, 26], iconAnchor: [13, 13]});
+const sincronizar = () => { puntos = marcas.map(m => [m.getLatLng().lat, m.getLatLng().lng]); };
+
+function dibujar(linea) {
+  if (capa) { map.removeLayer(capa); capa = null; }
+  if (linea && linea.length > 1) capa = L.layerGroup([L.polyline(linea, {color: '#000', weight: 9}), L.polyline(linea, {color: '#FFC800', weight: 5})]).addTo(map);
+}
+function osrm(pts) {
+  const c = pts.map(p => p[1] + ',' + p[0]).join(';');
+  return fetch('https://router.project-osrm.org/route/v1/driving/' + c + '?overview=full&geometries=geojson')
+    .then(r => r.json()).then(d => {
+      if (!d.routes || !d.routes.length) throw new Error();
+      return {linea: d.routes[0].geometry.coordinates.map(x => [x[1], x[0]]), km: d.routes[0].distance / 1000};
+    });
+}
+function trazar() {
+  traza = null; const mio = version;
+  if (puntos.length < 2) { dibujar(null); msg('Haz clic en el mapa para marcar el inicio y el final.'); return; }
+  msg('Ajustando a las calles...');
+  osrm(puntos).then(r => {
+    if (mio !== version) return;
+    traza = r.linea; dibujar(traza);
+    msg('Recorrido ajustado a las calles · ' + r.km.toFixed(1) + ' km. Arrastra un punto para corregirlo.');
+  }).catch(() => {
+    if (mio !== version) return;
+    dibujar(puntos); msg('No se pudo ajustar a las calles ahora. Si guardas, irá en línea recta entre los puntos.');
+  });
+}
+function programar() { version++; clearTimeout(timer); timer = setTimeout(trazar, 400); }
+
+function agregar(ll) {
+  const m = L.marker(ll, {icon: icono(marcas.length + 1), draggable: true}).addTo(map);
+  m.on('dragend', () => { sincronizar(); programar(); });
+  m.bindPopup(() => {
+    const b = document.createElement('button');
+    b.className = 'btn'; b.style.padding = '.3rem .6rem'; b.textContent = 'Quitar este punto';
+    b.onclick = () => quitar(m); return b;
+  });
+  marcas.push(m); sincronizar(); programar();
+}
+function quitar(m) {
+  map.removeLayer(m); marcas = marcas.filter(x => x !== m);
+  marcas.forEach((x, i) => x.setIcon(icono(i + 1))); sincronizar(); programar();
+}
+map.on('click', e => agregar(e.latlng));
+$('deshacer').onclick = () => { if (marcas.length) quitar(marcas[marcas.length - 1]); };
+$('limpiar').onclick = () => { marcas.forEach(m => map.removeLayer(m)); marcas = []; sincronizar(); programar(); };
+
+$('buscar').addEventListener('submit', e => {
+  e.preventDefault(); const q = $('q').value.trim(); if (!q) return;
+  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cl&q=' + encodeURIComponent(q))
+    .then(r => r.json()).then(d => {
+      if (!d.length) { msg('No encontré ese lugar. Prueba con la calle y la comuna.'); return; }
+      map.setView([+d[0].lat, +d[0].lon], 16);
+    }).catch(() => msg('No se pudo buscar ahora.'));
+});
+
+const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF}, body: JSON.stringify(body)}).then(r => r.json());
+async function guardar() {
+  if (puntos.length < 2) { msg('Marca al menos 2 puntos en el mapa.'); return; }
+  const d = await post('/api/recorridos/guardar/', {nombre: $('nombre').value, tarifa: $('tarifa').value, geometria: traza || puntos});
+  if (d.ok) location.reload(); else msg(d.error || 'No se pudo guardar.');
+}
+$('guardar').onclick = guardar;
+
+function ver(id) {
+  (cache ? Promise.resolve(cache) : fetch('/api/recorridos/?todos=1').then(r => r.json()).then(d => cache = d.recorridos)).then(lista => {
+    const r = lista.find(x => x.id === id); if (!r || !r.geometria.length) return;
+    if (vista) map.removeLayer(vista);
+    vista = L.polyline(r.geometria, {color: '#555', weight: 5, dashArray: '8 8'}).addTo(map);
+    map.fitBounds(vista.getBounds(), {padding: [30, 30]});
+  });
+}
+function eliminar(id) {
+  if (!confirm('¿Eliminar este recorrido?')) return;
+  post('/api/recorridos/eliminar/', {id}).then(d => { if (d.ok) location.reload(); else alert(d.error); });
+}
+</script>
+{% endblock %}

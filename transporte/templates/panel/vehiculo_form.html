@@ -1,0 +1,12 @@
+{% extends "panel/base_panel.html" %}
+{% block panel %}
+<h1>{% if vehiculo %}Editar {{ vehiculo.patente }}{% else %}Nuevo vehículo{% endif %}</h1>
+<form method="post" class="formulario">{% csrf_token %}
+  {{ form.non_field_errors }}
+  {% for c in form %}
+    <div class="campo">{% if c.field.widget.input_type == 'checkbox' %}<label class="chk">{{ c }} {{ c.label }}</label>{% else %}{{ c.label_tag }}{{ c }}{% endif %}
+      {% if c.help_text %}<span class="helptext">{{ c.help_text }}</span>{% endif %}{{ c.errors }}</div>
+  {% endfor %}
+  <div class="fila-acciones"><button class="btn" type="submit">Guardar</button><a class="btn sec" href="{% url 'panel_vehiculos' %}">Cancelar</a></div>
+</form>
+{% endblock %}

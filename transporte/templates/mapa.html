@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block titulo %}Colectivos en vivo · Conatacoch{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<div class="barra">
+  <form id="form-busca" role="search" style="display:flex;gap:.4rem">
+    <input id="q" type="search" placeholder="Buscar recorrido por nombre" aria-label="Buscar recorrido por nombre" style="padding:.5rem;border:2px solid #000;border-radius:8px;font:inherit;background:var(--blanco);color:inherit">
+    <button class="btn" type="submit" style="padding:.45rem .8rem">Buscar</button>
+  </form>
+  <label for="radio">Cerca de mí</label>
+  <select id="radio"><option value="500">500 m</option><option value="1000" selected>1 km</option><option value="2000">2 km</option><option value="5000">5 km</option></select>
+  <button class="btn sec" id="btn-yo" type="button" style="padding:.45rem .8rem">Mi ubicación</button>
+  <span id="aviso" role="status"></span>
+</div>
+<div class="chips"><span id="resultados" style="display:contents" aria-live="polite"></span><span id="info-ruta"></span></div>
+<div id="map" role="application" aria-label="Mapa de colectivos"></div>
+
+<dialog id="dlg">
+  <form id="form-val">
+    <h3>Valorar al conductor</h3>
+    <label>Puntaje
+      <select name="puntaje"><option value="5">5 - Excelente</option><option value="4">4 - Bueno</option><option value="3">3 - Regular</option><option value="2">2 - Malo</option><option value="1">1 - Muy malo</option></select>
+    </label>
+    <label>Tipo
+      <select name="categoria"><option value="felicitacion">Felicitación</option><option value="sugerencia">Sugerencia</option><option value="reclamo">Reclamo</option></select>
+    </label>
+    <label>Comentario (opcional)<textarea name="comentario" maxlength="500"></textarea></label>
+    <p id="val-msg" role="status"></p>
+    <div style="display:flex;gap:.5rem"><button class="btn" type="submit">Enviar valoración</button><button class="btn sec" type="button" id="cerrar">Cancelar</button></div>
+  </form>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const AUTH = {{ user.is_authenticated|yesno:"true,false" }};
+const CSRF = "{{ csrf_token }}";
+const LOGIN = "{% url 'login' %}";
+const $ = id => document.getElementById(id);
+const map = L.map('map').setView([-33.45, -70.66], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(map);
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iconoColectivo = L.divIcon({className: '', html: '<div class="colectivo"></div>', iconSize: [34, 27], iconAnchor: [17, 14]});
+const iconoYo = L.divIcon({className: '', html: '<div class="yo"></div>', iconSize: [20, 20], iconAnchor: [10, 10]});
+const marcadores = {};
+let recorridos = [], capa = null, pos = null, q = '', yo = null, precision = null, circulo = null, jornadaVal = null, reqId = 0;
+const radio = () => +$('radio').value;
+const fmt = m => m < 1000 ? m + ' m' : (m / 1000).toFixed(1) + ' km';
+
+/* ---- recorridos: solo los cercanos a mi ubicación o los que busco por nombre ---- */
+function cargarRecorridos(ajustar) {
+  const mio = ++reqId;
+  let url = '/api/recorridos/';
+  const loc = pos ? 'lat=' + pos[0] + '&lng=' + pos[1] : '';
+  if (q) url += '?q=' + encodeURIComponent(q) + (loc ? '&' + loc : '');
+  else if (pos) url += '?' + loc + '&radio=' + radio();
+  return fetch(url).then(r => r.json()).then(d => {
+    if (mio !== reqId) return;
+    recorridos = d.recorridos || [];
+    dibujarRecorridos(ajustar); mostrarLista(); $('info-ruta').textContent = ''; cargar();
+  });
+}
+function dibujarRecorridos(ajustar) {
+  if (capa) map.removeLayer(capa);
+  capa = L.featureGroup();
+  recorridos.forEach(r => {
+    if (r.geometria.length < 2) return;
+    L.polyline(r.geometria, {color: '#000', weight: 9}).addTo(capa);
+    L.polyline(r.geometria, {color: '#FFC800', weight: 5}).addTo(capa);
+  });
+  capa.addTo(map);
+  if (ajustar && capa.getLayers().length) map.fitBounds(capa.getBounds(), {padding: [30, 30]});
+}
+function mostrarLista() {
+  const c = $('resultados'); c.textContent = '';
+  if (!recorridos.length) {
+    c.textContent = q ? 'No encontré recorridos con ese nombre.'
+      : pos ? 'No hay recorridos dentro de ese radio. Prueba con un radio mayor o busca por nombre.'
+      : 'Permite tu ubicación o busca un recorrido por nombre.';
+    return;
+  }
+  recorridos.forEach(r => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.setAttribute('aria-pressed', 'false');
+    b.textContent = r.nombre + (r.distancia != null ? ' · a ' + fmt(r.distancia) : '');
+    b.onclick = () => {
+      document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+      if (r.geometria.length > 1) map.fitBounds(L.polyline(r.geometria).getBounds(), {padding: [30, 30]});
+      $('info-ruta').textContent = 'Tarifa: $' + r.tarifa + (r.tarifa_actualizada ? ' (actualizada el ' + r.tarifa_actualizada + ')' : '');
+    };
+    c.appendChild(b);
+  });
+}
+$('form-busca').addEventListener('submit', e => { e.preventDefault(); q = $('q').value.trim(); cargarRecorridos(true); });
+$('radio').addEventListener('change', () => {
+  if (circulo) circulo.setRadius(radio());
+  if (pos) map.fitBounds(L.latLng(pos).toBounds(radio() * 2.4));
+  cargarRecorridos(false);
+});
+
+/* ---- colectivos en vivo (solo los de los recorridos que se están mostrando) ---- */
+function popup(c) {
+  const val = c.valoracion ? `<span class="estrellas">★ ${c.valoracion}</span>` : '<span>Sin valoraciones</span>';
+  const foto = c.foto ? `<img class="foto" src="${esc(c.foto)}" alt="Foto de ${esc(c.conductor)}">` : '';
+  return `<div class="pop">${foto}<h3>${esc(c.conductor)}</h3>
+    <div class="dato">Patente: <b>${esc(c.patente)}</b> · ${esc(c.modelo)}</div>
+    <div class="dato">Recorrido: ${esc(c.recorrido)}</div>
+    <div class="dato">${val}</div>
+    ${c.hay_asientos ? '<div class="dato"><span class="asientos">Hay asientos disponibles</span></div>' : ''}
+    <div class="dato"><button class="btn" style="padding:.4rem .7rem;margin-top:.4rem" onclick="valorar(${c.jornada})">Valorar</button></div></div>`;
+}
+function cargar() {
+  const ids = recorridos.map(r => r.id).join(',') || '0';
+  fetch('/api/colectivos/?recorridos=' + ids).then(r => r.json()).then(d => {
+    const vivos = new Set(d.colectivos.map(c => c.jornada));
+    Object.keys(marcadores).forEach(id => { if (!vivos.has(+id)) { map.removeLayer(marcadores[id]); delete marcadores[id]; } });
+    d.colectivos.forEach(c => {
+      if (marcadores[c.jornada]) marcadores[c.jornada].setLatLng([c.lat, c.lng]).setPopupContent(popup(c));
+      else marcadores[c.jornada] = L.marker([c.lat, c.lng], {icon: iconoColectivo, title: c.patente}).addTo(map).bindPopup(popup(c));
+    });
+  });
+}
+
+/* ---- valoración ---- */
+const dlg = $('dlg');
+function valorar(j) {
+  if (!AUTH) { location.href = LOGIN + '?next=/'; return; }
+  jornadaVal = j; $('val-msg').textContent = ''; dlg.showModal();
+}
+$('cerrar').onclick = () => dlg.close();
+$('form-val').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target)); f.jornada = jornadaVal;
+  fetch('/api/valorar/', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF}, body: JSON.stringify(f)})
+    .then(r => r.json()).then(d => {
+      $('val-msg').textContent = d.ok ? 'Valoración enviada. Gracias.' : (d.error || 'No se pudo enviar.');
+      if (d.ok) setTimeout(() => { dlg.close(); cargar(); }, 900);
+    });
+});
+
+/* ---- mi ubicación ---- */
+function ubicarme(bienvenida) {
+  const aviso = $('aviso');
+  if (!navigator.geolocation) { aviso.textContent = 'Tu dispositivo no permite usar el GPS.'; cargarRecorridos(false); return; }
+  aviso.textContent = 'Buscando tu ubicación...';
+  navigator.geolocation.getCurrentPosition(p => {
+    const ll = [p.coords.latitude, p.coords.longitude]; pos = ll;
+    if (yo) { yo.setLatLng(ll); precision.setLatLng(ll).setRadius(p.coords.accuracy); circulo.setLatLng(ll).setRadius(radio()); }
+    else {
+      precision = L.circle(ll, {radius: p.coords.accuracy, color: '#000', weight: 1, fillColor: '#FFC800', fillOpacity: .2}).addTo(map);
+      circulo = L.circle(ll, {radius: radio(), color: '#000', weight: 2, dashArray: '6 6', fill: false}).addTo(map);
+      yo = L.marker(ll, {icon: iconoYo, zIndexOffset: 1000}).addTo(map).bindPopup('Estás aquí');
+    }
+    if (!q) map.fitBounds(L.latLng(ll).toBounds(radio() * 2.4));
+    yo.openPopup();
+    aviso.textContent = bienvenida ? 'Tu cuenta está lista. Este es el lugar donde estás.' : '';
+    cargarRecorridos(false);
+  }, () => {
+    aviso.textContent = 'No pudimos obtener tu ubicación. Permite el acceso o busca un recorrido por nombre.';
+    cargarRecorridos(false);
+  }, {enableHighAccuracy: true, timeout: 15000});
+}
+$('btn-yo').onclick = () => ubicarme(false);
+ubicarme(new URLSearchParams(location.search).has('bienvenida'));
+cargarRecorridos(false);
+setInterval(cargar, 4000);
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titulo %}Panel · Conatacoch{% endblock %}
+{% block contenido %}
+<div class="panel-wrap">
+  <nav class="panel-nav" aria-label="Administración">
+    <a href="{% url 'panel_personas' %}"{% if seccion == 'personas' %} aria-current="page"{% endif %}>Personas</a>
+    <a href="{% url 'panel_vehiculos' %}"{% if seccion == 'vehiculos' %} aria-current="page"{% endif %}>Vehículos</a>
+    {% if es_admin %}<a href="{% url 'gestion_recorridos' %}">Recorridos</a>{% endif %}
+  </nav>
+  <section class="panel-main">
+    {% for m in messages %}<p class="msg" role="status">{{ m }}</p>{% endfor %}
+    {% block panel %}{% endblock %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block titulo %}Crear cuenta · Conatacoch{% endblock %}
+{% block contenido %}
+<form class="caja" method="post">{% csrf_token %}
+  <h1>Crear cuenta de pasajero</h1>
+  {{ form.as_p }}
+  <button class="btn" type="submit">Crear cuenta</button>
+</form>
+{% endblock %}

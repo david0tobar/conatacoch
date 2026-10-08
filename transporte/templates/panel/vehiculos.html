@@ -1,0 +1,50 @@
+{% extends "panel/base_panel.html" %}
+{% block panel %}
+<div class="cab"><h1>Vehículos</h1><a class="btn" href="{% url 'panel_vehiculo_nuevo' %}">Nuevo vehículo</a></div>
+
+{% if pendientes %}<p class="aviso-pend">{{ pendientes }} vehículo{{ pendientes|pluralize }} pendiente{{ pendientes|pluralize }} de aprobación. <a href="?estado=pendientes">Ver solo pendientes</a></p>{% endif %}
+
+<form class="filtros" method="get">
+  <input name="q" value="{{ q }}" placeholder="Buscar por patente o modelo" aria-label="Buscar por patente o modelo">
+  <select name="estado" aria-label="Filtrar por estado">
+    <option value="">Todos</option><option value="pendientes"{% if estado == 'pendientes' %} selected{% endif %}>Pendientes de aprobación</option>
+  </select>
+  <button class="btn sec" type="submit">Filtrar</button>
+</form>
+
+<div class="tarjetas">
+{% for v in vehiculos %}
+  <article class="tarjeta">
+    <header>
+      <span class="patente">{{ v.patente }}</span>
+      <span class="badge {% if v.aprobado %}ok{% else %}pend{% endif %}">{% if v.aprobado %}Aprobado{% else %}Pendiente{% endif %}</span>
+    </header>
+    <p>{{ v.modelo }} · {{ v.capacidad }} asientos<br><span class="helptext">Recorrido: {{ v.recorrido.nombre }}</span></p>
+
+    <b>Conductores</b>
+    <div class="tags">
+      {% for u in v.asignados %}
+      <form method="post" action="{% url 'panel_vehiculo_conductor' v.pk %}" class="tag-form">{% csrf_token %}
+        <input type="hidden" name="accion" value="quitar"><input type="hidden" name="usuario" value="{{ u.pk }}">
+        <span class="tag">{{ u.first_name|default:u.username }}<button aria-label="Quitar a {{ u.first_name|default:u.username }}" title="Quitar">×</button></span>
+      </form>
+      {% empty %}<span class="helptext">Sin conductores asignados</span>{% endfor %}
+    </div>
+    {% if v.disponibles %}
+    <form method="post" action="{% url 'panel_vehiculo_conductor' v.pk %}" class="agregar">{% csrf_token %}
+      <input type="hidden" name="accion" value="agregar">
+      <select name="usuario" aria-label="Conductor a agregar">{% for p in v.disponibles %}<option value="{{ p.usuario_id }}">{{ p.usuario.first_name|default:p.usuario.username }}</option>{% endfor %}</select>
+      <button class="btn sec">Agregar</button>
+    </form>
+    {% endif %}
+
+    <footer class="fila-acciones">
+      <form method="post" action="{% url 'panel_vehiculo_aprobar' v.pk %}">{% csrf_token %}<button class="btn {% if v.aprobado %}sec{% endif %}">{% if v.aprobado %}Quitar aprobación{% else %}Aprobar{% endif %}</button></form>
+      <a class="btn sec" href="{% url 'panel_vehiculo_editar' v.pk %}">Editar</a>
+    </footer>
+  </article>
+{% empty %}
+  <p>No hay vehículos que mostrar.</p>
+{% endfor %}
+</div>
+{% endblock %}

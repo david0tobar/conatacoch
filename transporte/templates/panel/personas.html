@@ -1,0 +1,49 @@
+{% extends "panel/base_panel.html" %}
+{% block panel %}
+<div class="cab"><h1>Personas</h1><a class="btn" href="{% url 'panel_persona_nueva' %}">Nueva persona</a></div>
+
+{% if clave_nueva %}
+<div class="clave-box" role="alert">
+  <b>{{ clave_nueva.0 }}</b> · {{ clave_nueva.1 }}<br>
+  Contraseña provisoria: <code>{{ clave_nueva.2 }}</code><br>
+  <span>Anótala y entrégala a la persona ahora: no se vuelve a mostrar. Deberá cambiarla al ingresar.</span>
+</div>
+{% endif %}
+
+<form class="filtros" method="get">
+  <input name="q" value="{{ q }}" placeholder="Buscar por nombre o RUT" aria-label="Buscar por nombre o RUT">
+  <select name="rol" aria-label="Filtrar por rol">
+    <option value="">Todos los roles</option>
+    {% for v, n in roles %}<option value="{{ v }}"{% if v == rol %} selected{% endif %}>{{ n }}</option>{% endfor %}
+  </select>
+  <button class="btn sec" type="submit">Filtrar</button>
+</form>
+
+<div class="tabla-wrap">
+<table class="tabla">
+  <thead><tr><th>Persona</th><th>Rol</th><th>Vehículos</th><th>Estado</th><th>Acciones</th></tr></thead>
+  <tbody>
+  {% for p in perfiles %}
+    <tr>
+      <td><div class="persona">
+        {% if p.foto %}<img class="mini" src="{{ p.foto.url }}" alt="">{% else %}<span class="mini vacia" aria-hidden="true">{{ p.usuario.first_name|default:"?"|slice:":1" }}</span>{% endif %}
+        <span><b>{{ p.usuario.first_name|default:p.usuario.username }}</b><br><span class="helptext">{{ p.rut_fmt }}</span></span>
+      </div></td>
+      <td><span class="badge rol-{{ p.rol }}">{{ p.get_rol_display }}</span></td>
+      <td>{% for v in p.usuario.vehiculos_asignados.all %}<span class="tag">{{ v.patente }}</span>{% empty %}<span class="helptext">-</span>{% endfor %}</td>
+      <td>{% if p.usuario.is_active %}Activa{% else %}<b>Desactivada</b>{% endif %}</td>
+      <td class="fila-acciones">
+        <a class="btn sec" href="{% url 'panel_persona_editar' p.pk %}">Editar</a>
+        {% if p.usuario_id != user.id and not p.usuario.is_superuser %}
+        <form method="post" action="{% url 'panel_persona_clave' p.pk %}" onsubmit="return confirm('¿Restablecer la contraseña? Se cerrará su sesión actual.')">{% csrf_token %}<button class="btn sec">Restablecer clave</button></form>
+        <form method="post" action="{% url 'panel_persona_estado' p.pk %}">{% csrf_token %}<button class="btn sec">{% if p.usuario.is_active %}Desactivar{% else %}Activar{% endif %}</button></form>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5">No hay personas que coincidan.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

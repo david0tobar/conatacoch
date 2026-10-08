@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block titulo %}Cambiar contraseña · Conatacoch{% endblock %}
+{% block contenido %}
+<form class="caja" method="post">{% csrf_token %}
+  <h1>Cambiar contraseña</h1>
+  {% if obligatorio %}<p class="msg">Tu contraseña es provisoria. Debes cambiarla para continuar.</p>{% endif %}
+  {{ form.as_p }}
+  <button class="btn" type="submit">Guardar contraseña</button>
+</form>
+{% endblock %}
